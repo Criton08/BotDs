@@ -14,12 +14,14 @@ from bot import (
     XP_BONUS_PER_LEVEL,
     XP_MIN,
     LevelBot,
+    level_info,
+)
+from database import (
     all_steam_ids,
     get_last_seen,
     get_levelup_channel,
     get_steam_id,
     get_xp,
-    level_info,
     set_last_seen,
     set_levelup_channel,
     set_steam_id,

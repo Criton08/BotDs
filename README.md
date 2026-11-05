@@ -33,7 +33,7 @@ I comandi funzionano solo dentro un server, non in privato.
 
 ## Database
 
-SQLite, file `levels.db` creato all'avvio nella cartella da cui lanci il bot (lancialo dalla radice del progetto). Il salvataggio avviene ogni 10 secondi. Tabelle:
+SQLite, file `levels.db` creato all'avvio nella cartella da cui lanci il bot (lancialo dalla radice del progetto). Il codice sta in `src/database.py`. Il salvataggio avviene ogni 10 secondi. Tabelle:
 
 | Tabella | Contenuto |
 |---|---|
