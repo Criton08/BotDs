@@ -24,7 +24,8 @@ I comandi funzionano solo dentro un server, non in privato.
 
 ## Come si guadagna XP
 
-- Ogni messaggio dà da **15 a 25 XP** (media 20).
+- Ogni messaggio dà da **15 a 25 XP** (media 20) al livello 0.
+- Bonus del **+5% per ogni livello** (`XP_BONUS_PER_LEVEL` in `src/bot.py`): al livello 10 gli XP sono x1.5, al livello 20 x2.
 - Cooldown di **30 secondi** per utente: i messaggi entro i 30 secondi non contano.
 - Quindi al massimo ~40 XP al minuto, ~2400 XP all'ora di chat continua.
 - I messaggi dei bot e i messaggi privati sono ignorati.
@@ -36,20 +37,20 @@ Per passare dal livello `L` al successivo servono `5·L² + 50·L + 100` XP.
 
 ## Livelli con ruolo
 
-XP totali necessari per raggiungere i livelli che sbloccano un ruolo. "Minuti" è il tempo minimo stimato scrivendo un messaggio al minuto (media 20 XP).
+XP totali necessari per raggiungere i livelli che sbloccano un ruolo. "Minuti" è il tempo minimo stimato scrivendo un messaggio al minuto (media 20 XP al livello 0, con il bonus per livello).
 
 | Livello | XP totali | Minuti circa |
 |---:|---:|---:|
-| 5 | 1.150 | 58 |
-| 10 | 4.675 | 234 |
-| 15 | 11.825 | 591 |
-| 20 | 23.850 | 1.192 |
-| 25 | 42.000 | 2.100 |
-| 30 | 67.525 | 3.376 |
-| 40 | 145.700 | 7.285 |
-| 50 | 268.375 | 13.419 |
-| 75 | 835.375 | 41.769 |
-| 100 | 1.899.250 | 94.962 |
+| 5 | 1.150 | 51 |
+| 10 | 4.675 | 180 |
+| 15 | 11.825 | 403 |
+| 20 | 23.850 | 726 |
+| 25 | 42.000 | 1.157 |
+| 30 | 67.525 | 1.700 |
+| 40 | 145.700 | 3.127 |
+| 50 | 268.375 | 5.023 |
+| 75 | 835.375 | 11.861 |
+| 100 | 1.899.250 | 21.744 |
 
 I ruoli sono definiti in `src/roles.py` (`LEVEL_ROLES`). I ruoli vecchi non vengono tolti: si accumulano.
 

@@ -11,6 +11,7 @@ DB_FILE = "levels.json"             # file dove vengono salvati gli XP
 COOLDOWN_SECONDS = 30             # ogni utente guadagna XP al massimo ogni 5 secondi
 XP_MIN = 15                         # XP minimi per messaggio
 XP_MAX = 25                         # XP massimi per messaggio
+XP_BONUS_PER_LEVEL = 0.05           # +5% XP per messaggio per ogni livello (livello 10 = x1.5)
 
 # =====================================================
 # DATABASE (semplice file JSON)

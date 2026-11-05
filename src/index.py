@@ -11,6 +11,7 @@ from discord.ext import tasks
 from bot import (
     COOLDOWN_SECONDS,
     XP_MAX,
+    XP_BONUS_PER_LEVEL,
     XP_MIN,
     LevelBot,
     all_steam_ids,
@@ -92,7 +93,9 @@ async def assegna_xp(message: discord.Message, now: float, annuncia: bool = True
     # Assegna XP casuali e ricorda il livello di prima
     user = get_user(message.guild.id, message.author.id)
     level_before, _, _ = level_info(user["xp"])
-    user["xp"] += random.randint(XP_MIN, XP_MAX)
+    # Più sali di livello, più XP guadagni per messaggio
+    moltiplicatore = 1 + XP_BONUS_PER_LEVEL * level_before
+    user["xp"] += round(random.randint(XP_MIN, XP_MAX) * moltiplicatore)
     mark_dirty()
 
     # Se il livello è aumentato, annuncia
