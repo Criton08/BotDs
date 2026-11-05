@@ -1,4 +1,4 @@
-# Il bestemmiatore
+# Bot leveling with message
 
 Bot Discord con sistema di livelli e XP. Ogni messaggio dà XP, salendo di livello si ottengono ruoli.
 
