@@ -14,4 +14,8 @@ dist/
 
 # Dati e config
 *.json
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
 CLAUDE.md

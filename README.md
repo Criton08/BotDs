@@ -16,7 +16,7 @@ I comandi funzionano solo dentro un server, non in privato.
 ## Livello Steam nel nickname
 
 - `/steam` accetta il link al profilo (`.../profiles/<numero>` o `.../id/<nome>`), il nome del link o direttamente lo SteamID64.
-- Salva il collegamento utente Discord -> SteamID64 in `levels.json` (chiave `_steam`, valida per tutti i server).
+- Salva il collegamento utente Discord -> SteamID64 nella tabella `utenti` del database (valido per tutti i server).
 - Ogni ora il bot riallinea il livello nei nickname degli utenti collegati.
 - Il profilo Steam deve essere **pubblico**.
 - Il proprietario del server non può essere rinominato (limite di Discord).
@@ -30,6 +30,19 @@ I comandi funzionano solo dentro un server, non in privato.
 - Quindi al massimo ~40 XP al minuto, ~2400 XP all'ora di chat continua.
 - I messaggi dei bot e i messaggi privati sono ignorati.
 - All'avvio il bot recupera i messaggi arrivati mentre era spento (senza annunciare i level up).
+
+## Database
+
+SQLite, file `levels.db` creato all'avvio nella cartella da cui lanci il bot (lancialo dalla radice del progetto). Il salvataggio avviene ogni 10 secondi. Tabelle:
+
+| Tabella | Contenuto |
+|---|---|
+| `utenti` | `id_utente`, `steam`: dati globali dell'utente |
+| `server` | `id_server`, `canale_levelup` |
+| `canali` | `id_canale`, `id_server`, `ultimo_messaggio` (per recuperare i messaggi persi) |
+| `xp` | `id_server`, `id_utente`, `xp`: XP dell'utente in quel server |
+
+`levels.db` è nel `.gitignore`: contiene dati degli utenti, non va committato.
 
 ## XP per livello
 

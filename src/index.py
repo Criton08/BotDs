@@ -15,16 +15,16 @@ from bot import (
     XP_MIN,
     LevelBot,
     all_steam_ids,
-    db,
     get_last_seen,
     get_levelup_channel,
     get_steam_id,
-    get_user,
+    get_xp,
     level_info,
     set_last_seen,
     set_levelup_channel,
     set_steam_id,
-    mark_dirty,
+    set_xp,
+    top_xp,
 )
 
 from roles import LEVEL_ROLES
@@ -57,13 +57,13 @@ async def on_ready():
             if last is None:
                 # Canale mai visto: parte da adesso, non legge lo storico
                 if channel.last_message_id:
-                    set_last_seen(channel.id, channel.last_message_id)
+                    set_last_seen(guild.id, channel.id, channel.last_message_id)
                 continue
             try:
                 async for msg in channel.history(
                     limit=None, after=discord.Object(id=last), oldest_first=True
                 ):
-                    set_last_seen(channel.id, msg.id)
+                    set_last_seen(guild.id, channel.id, msg.id)
                     await assegna_xp(msg, msg.created_at.timestamp(), annuncia=False)
             except discord.Forbidden:
                 pass  # manca "Leggi cronologia messaggi" in questo canale
@@ -74,7 +74,7 @@ async def on_ready():
 async def on_message(message: discord.Message):
     """Eseguito a ogni messaggio in diretta."""
     if message.guild is not None:
-        set_last_seen(message.channel.id, message.id)
+        set_last_seen(message.guild.id, message.channel.id, message.id)
     await assegna_xp(message, time.time())
 
 
@@ -91,15 +91,15 @@ async def assegna_xp(message: discord.Message, now: float, annuncia: bool = True
     cooldowns[key] = now
 
     # Assegna XP casuali e ricorda il livello di prima
-    user = get_user(message.guild.id, message.author.id)
-    level_before, _, _ = level_info(user["xp"])
+    xp = get_xp(message.guild.id, message.author.id)
+    level_before, _, _ = level_info(xp)
     # Più sali di livello, più XP guadagni per messaggio
     moltiplicatore = 1 + XP_BONUS_PER_LEVEL * level_before
-    user["xp"] += round(random.randint(XP_MIN, XP_MAX) * moltiplicatore)
-    mark_dirty()
+    xp += round(random.randint(XP_MIN, XP_MAX) * moltiplicatore)
+    set_xp(message.guild.id, message.author.id, xp)
 
     # Se il livello è aumentato, annuncia
-    level_after, _, _ = level_info(user["xp"])
+    level_after, _, _ = level_info(xp)
     if annuncia and level_after > level_before:
         # Usa il canale scelto dall'admin; se manca o è stato cancellato, quello del messaggio
         canale = message.channel
@@ -207,7 +207,7 @@ async def steam(interaction: discord.Interaction, profilo: str):
 async def rank(interaction: discord.Interaction, utente: discord.Member | None = None):
     # Se non specifichi nessuno, mostra i dati di chi ha scritto il comando
     target = utente or interaction.user
-    xp = get_user(interaction.guild.id, target.id)["xp"]
+    xp = get_xp(interaction.guild.id, target.id)
     level, current, needed = level_info(xp)
 
     embed = discord.Embed(color=0x5865F2)
@@ -253,13 +253,12 @@ async def setlevelchannel_error(
 @app_commands.guild_only()
 async def leaderboard(interaction: discord.Interaction):
     # Ordina gli utenti del server per XP, dal più alto, e prende i primi 10
-    users = db.get(str(interaction.guild.id), {})
-    top = sorted(users.items(), key=lambda item: item[1]["xp"], reverse=True)[:10]
+    top = top_xp(interaction.guild.id, 10)
 
     righe = []
-    for posizione, (user_id, data) in enumerate(top, start=1):
-        level, _, _ = level_info(data["xp"])
-        righe.append(f"**{posizione}.** <@{user_id}> — livello {level} ({data['xp']} XP)")
+    for posizione, (user_id, xp) in enumerate(top, start=1):
+        level, _, _ = level_info(xp)
+        righe.append(f"**{posizione}.** <@{user_id}> — livello {level} ({xp} XP)")
 
     embed = discord.Embed(
         title="🏆 Classifica",
