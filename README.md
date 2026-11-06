@@ -8,6 +8,7 @@ Bot Discord con sistema di livelli e XP. Ogni messaggio dà XP, salendo di livel
 |---|---|
 | `/rank [utente]` | Mostra posizione in classifica, livello, XP nel livello attuale e XP totali. Senza argomento mostra i propri dati. |
 | `/leaderboard [quanti]` | Classifica del server per XP: `quanti` utenti (1-25), default 10. |
+| `/helprank` | Elenca i ruoli del server con livello e XP totali necessari per ottenerli. |
 | `/setlevelchannel [canale]` | Solo admin. Imposta il canale dei messaggi di level up. Senza argomento torna al canale dove scrive l'utente. |
 | `/steam <profilo>` | Collega il tuo account Steam (incolla il link al profilo) e aggiunge il livello Steam al nickname (`Nome [Steam 42]`). |
 
@@ -66,5 +67,5 @@ XP totali necessari per raggiungere i livelli che sbloccano un ruolo. "Minuti" �
 | 75 | 835.375 | 11.861 |
 | 100 | 1.899.250 | 21.744 |
 
-I ruoli sono definiti in `src/roles.py` (`LEVEL_ROLES`). I ruoli vecchi non vengono tolti: si accumulano.
+I ruoli si gestiscono per server con `/setrole ruolo [livello]` e `/removerole ruolo` (solo admin); sono salvati nella tabella `ruoli`. Senza livello, `/setrole` usa l'ultimo livello + 5 (0 se è il primo). I ruoli vecchi non vengono tolti: si accumulano.
 

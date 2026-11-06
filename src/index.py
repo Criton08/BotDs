@@ -16,6 +16,7 @@ from bot import (
     XP_MIN,
     LevelBot,
     level_info,
+    total_xp_for_level,
 )
 import database
 from database import (
@@ -23,16 +24,17 @@ from database import (
     get_last_save,
     get_levelup_channel,
     get_posizione,
-    get_steam_id,
+    get_ruoli,
     get_xp,
     mark_dirty,
+    remove_ruolo,
     set_levelup_channel,
+    set_ruolo,
     set_steam_id,
     set_xp,
     top_xp,
 )
 
-from roles import LEVEL_ROLES
 from steam import resolve_steam_id, steam_level
 
 TOKEN = os.getenv("DISCORD_TOKEN")  # il token si legge dalla variabile d'ambiente
@@ -77,6 +79,12 @@ async def on_message(message: discord.Message):
     await assegna_xp(message, time.time())
 
 
+@client.event
+async def on_guild_role_delete(role: discord.Role):
+    """Un ruolo eliminato su Discord sparisce anche dall'elenco dei ruoli di livello."""
+    remove_ruolo(role.guild.id, role.id)
+
+
 async def assegna_xp(message: discord.Message, now: float, annuncia: bool = True):
     """Assegna XP e controlla il level up. 'now' è l'orario del messaggio."""
     # Ignora i bot e i messaggi privati
@@ -115,7 +123,7 @@ async def assegna_xp(message: discord.Message, now: float, annuncia: bool = True
     # Aggiunge i ruoli sbloccati (livello 0 incluso) senza togliere quelli vecchi.
     # Controllo a ogni XP guadagnato: il ruolo base arriva al primo messaggio.
     nuovi = []
-    for lvl, role_id in LEVEL_ROLES.items():
+    for lvl, role_id in get_ruoli(message.guild.id):
         if level_after >= lvl:
             ruolo = message.guild.get_role(role_id)
             if ruolo and ruolo not in message.author.roles:
@@ -216,6 +224,26 @@ async def rank(interaction: discord.Interaction, utente: discord.Member | None =
     embed.add_field(name="Livello", value=str(level))
     embed.add_field(name="XP", value=f"{current} / {needed}")
     embed.add_field(name="XP totali", value=str(xp))
+    # Ruolo di livello più alto raggiunto (non il top_role del server)
+    raggiunti = [r for l, r in get_ruoli(interaction.guild.id) if l <= level]
+    ruolo = interaction.guild.get_role(raggiunti[-1]) if raggiunti else None
+    embed.add_field(name="Ruolo", value=ruolo.mention if ruolo else "—", inline=False)
+    await interaction.response.send_message(embed=embed)
+
+
+@client.tree.command(name="helprank", description="Mostra livello e XP necessari per ogni ruolo")
+@app_commands.guild_only()
+async def helprank(interaction: discord.Interaction):
+    righe = []
+    for livello, role_id in get_ruoli(interaction.guild.id):
+        ruolo = interaction.guild.get_role(role_id)
+        nome = ruolo.mention if ruolo else "(ruolo eliminato)"
+        righe.append(f"{nome} — livello **{livello}** ({total_xp_for_level(livello):,} XP)".replace(",", "."))
+    embed = discord.Embed(
+        title="Ruoli e requisiti",
+        description="\n".join(righe) or "Nessun ruolo configurato.",
+        color=0x5865F2,
+    )
     await interaction.response.send_message(embed=embed)
 
 
@@ -240,6 +268,57 @@ async def setlevelchannel(
 
 @setlevelchannel.error
 async def setlevelchannel_error(
+    interaction: discord.Interaction, error: app_commands.AppCommandError
+):
+    if isinstance(error, app_commands.MissingPermissions):
+        await interaction.response.send_message(
+            "Solo gli amministratori possono usarlo.", ephemeral=True
+        )
+    else:
+        raise error
+
+
+@client.tree.command(name="setrole", description="Registra un ruolo di livello (solo admin)")
+@app_commands.describe(
+    ruolo="Il ruolo da assegnare",
+    livello="Livello da raggiungere; vuoto = ultimo livello + 5",
+)
+@app_commands.guild_only()
+@app_commands.default_permissions(administrator=True)
+@app_commands.checks.has_permissions(administrator=True)
+async def setrole(
+    interaction: discord.Interaction,
+    ruolo: discord.Role,
+    livello: app_commands.Range[int, 0] | None = None,
+):
+    try:
+        usato = set_ruolo(interaction.guild.id, ruolo.id, livello)
+    except ValueError:
+        await interaction.response.send_message(
+            f"Il livello {livello} ha già un altro ruolo.", ephemeral=True
+        )
+        return
+    await interaction.response.send_message(
+        f"{ruolo.mention} sarà assegnato al livello {usato}.", ephemeral=True
+    )
+
+
+@client.tree.command(name="removerole", description="Toglie un ruolo di livello (solo admin)")
+@app_commands.describe(ruolo="Il ruolo da togliere dall'elenco")
+@app_commands.guild_only()
+@app_commands.default_permissions(administrator=True)
+@app_commands.checks.has_permissions(administrator=True)
+async def removerole(interaction: discord.Interaction, ruolo: discord.Role):
+    if remove_ruolo(interaction.guild.id, ruolo.id):
+        msg = f"{ruolo.mention} tolto dai ruoli di livello."
+    else:
+        msg = f"{ruolo.mention} non era registrato."
+    await interaction.response.send_message(msg, ephemeral=True)
+
+
+@setrole.error
+@removerole.error
+async def ruoli_error(
     interaction: discord.Interaction, error: app_commands.AppCommandError
 ):
     if isinstance(error, app_commands.MissingPermissions):

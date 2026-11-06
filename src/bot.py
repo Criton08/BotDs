@@ -19,6 +19,11 @@ def xp_for_level(level: int) -> int:
     return 5 * level**2 + 50 * level + 100
 
 
+def total_xp_for_level(level: int) -> int:
+    """XP totali necessari per raggiungere 'level' partendo da 0."""
+    return sum(xp_for_level(l) for l in range(level))
+
+
 def level_info(total_xp: int):
     """Dagli XP totali calcola (livello, xp nel livello attuale, xp necessari al prossimo)."""
     level = 0

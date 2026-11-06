@@ -12,7 +12,8 @@ DB_FILE = "levels.db"  # database SQLite con gli XP
 Tabella utente abbiamo le info di ds e steam,
 Tabella server abbiamo le info del serverDs e quale è il canale levelup,
 Tabella meta abbiamo l'ultimo salvataggio svolto,
-Tabella xp abbiamo gli xp di ogni utente in ogni server, con chiavi esterne verso le altre due tabelle.
+Tabella xp abbiamo gli xp di ogni utente in ogni server, con chiavi esterne verso le altre due tabelle,
+Tabella ruoli abbiamo i ruoli di livello di ogni server (1 server -> n ruoli), con il livello da raggiungere.
 '''
 
 conn = sqlite3.connect(DB_FILE)
@@ -35,6 +36,12 @@ CREATE TABLE IF NOT EXISTS xp (
     id_utente INTEGER NOT NULL REFERENCES utenti(id_utente) ON DELETE CASCADE,
     xp        INTEGER NOT NULL DEFAULT 0 CHECK (xp >= 0),
     PRIMARY KEY (id_server, id_utente)
+);
+CREATE TABLE IF NOT EXISTS ruoli (
+    id_ruolo  INTEGER PRIMARY KEY,
+    id_server INTEGER NOT NULL REFERENCES server(id_server) ON DELETE CASCADE,
+    livello   INTEGER NOT NULL CHECK (livello >= 0),
+    UNIQUE (id_server, livello)
 );
 CREATE INDEX IF NOT EXISTS idx_xp_classifica ON xp (id_server, xp DESC);
 CREATE VIEW IF NOT EXISTS classifica AS
@@ -118,10 +125,37 @@ def set_levelup_channel(guild_id: int, channel_id: int | None):
     mark_dirty()
 
 
-def get_steam_id(user_id: int) -> str | None:
-    """SteamID64 collegato all'utente Discord (None se non collegato)."""
-    riga = conn.execute("SELECT steam FROM utenti WHERE id_utente = ?", (user_id,)).fetchone()
-    return riga[0] if riga else None
+def get_ruoli(guild_id: int) -> list[tuple[int, int]]:
+    """Ruoli di livello del server: [(livello, id_ruolo), ...] dal livello più basso."""
+    return conn.execute("SELECT livello, id_ruolo FROM ruoli WHERE id_server = ? ORDER BY livello",
+                        (guild_id,)).fetchall()
+
+
+def set_ruolo(guild_id: int, role_id: int, livello: int | None = None) -> int:
+    """Registra il ruolo al livello dato; senza livello: ultimo livello del server + 5
+    (0 se non ci sono ruoli). Se il ruolo esiste già, ne cambia il livello.
+    Ritorna il livello usato. ValueError se quel livello ha già un altro ruolo."""
+    _assicura(guild_id)
+    if livello is None:
+        riga = conn.execute("SELECT MAX(livello) FROM ruoli WHERE id_server = ? AND id_ruolo != ?",
+                            (guild_id, role_id)).fetchone()
+        livello = 0 if riga[0] is None else riga[0] + 5
+    occupato = conn.execute("SELECT 1 FROM ruoli WHERE id_server = ? AND livello = ? AND id_ruolo != ?",
+                            (guild_id, livello, role_id)).fetchone()
+    if occupato:
+        raise ValueError(livello)
+    conn.execute("INSERT INTO ruoli (id_ruolo, id_server, livello) VALUES (?, ?, ?) "
+                 "ON CONFLICT (id_ruolo) DO UPDATE SET livello = excluded.livello",
+                 (role_id, guild_id, livello))
+    mark_dirty()
+    return livello
+
+
+def remove_ruolo(guild_id: int, role_id: int) -> bool:
+    """Toglie il ruolo dall'elenco. False se non era registrato."""
+    cur = conn.execute("DELETE FROM ruoli WHERE id_server = ? AND id_ruolo = ?", (guild_id, role_id))
+    mark_dirty()
+    return cur.rowcount > 0
 
 
 def set_steam_id(user_id: int, steam_id: str):
