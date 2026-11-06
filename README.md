@@ -6,8 +6,8 @@ Bot Discord con sistema di livelli e XP. Ogni messaggio dà XP, salendo di livel
 
 | Comando | Descrizione |
 |---|---|
-| `/rank [utente]` | Mostra livello, XP nel livello attuale e XP totali. Senza argomento mostra i propri dati. |
-| `/leaderboard` | Classifica top 10 del server per XP. |
+| `/rank [utente]` | Mostra posizione in classifica, livello, XP nel livello attuale e XP totali. Senza argomento mostra i propri dati. |
+| `/leaderboard [quanti]` | Classifica del server per XP: `quanti` utenti (1-25), default 10. |
 | `/setlevelchannel [canale]` | Solo admin. Imposta il canale dei messaggi di level up. Senza argomento torna al canale dove scrive l'utente. |
 | `/steam <profilo>` | Collega il tuo account Steam (incolla il link al profilo) e aggiunge il livello Steam al nickname (`Nome [Steam 42]`). |
 
@@ -41,6 +41,7 @@ SQLite, file `levels.db` creato all'avvio nella cartella da cui lanci il bot (la
 | `server` | `id_server`, `canale_levelup` |
 | `meta` | `chiave`, `valore` (`ultimo_salvataggio`: orario per recuperare i messaggi persi) |
 | `xp` | `id_server`, `id_utente`, `xp`: XP dell'utente in quel server |
+| `classifica` (view) | `id_server`, `id_utente`, `xp`, `posizione`: `RANK()` per server, usata da `/rank` e `/leaderboard` |
 
 `levels.db` è nel `.gitignore`: contiene dati degli utenti, non va committato.
 

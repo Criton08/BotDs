@@ -8,14 +8,13 @@ from discord.ext import tasks
 
 DB_FILE = "levels.db"  # database SQLite con gli XP
 
-# =====================================================
-# DATABASE (SQLite, schema normalizzato con chiavi esterne)
-#   utenti(id_utente PK, steam)                  un utente, una riga (dati globali)
-#   server(id_server PK, canale_levelup)         un server, una riga
-#   meta(chiave PK, valore)                      'ultimo_salvataggio' = orario (epoch) dell'ultimo commit
-#   xp(id_server FK, id_utente FK, xp)           PK (id_server, id_utente)
-# Le scritture restano in una transazione; save_loop fa il commit ogni 10 s.
-# =====================================================
+'''
+Tabella utente abbiamo le info di ds e steam,
+Tabella server abbiamo le info del serverDs e quale è il canale levelup,
+Tabella meta abbiamo l'ultimo salvataggio svolto,
+Tabella xp abbiamo gli xp di ogni utente in ogni server, con chiavi esterne verso le altre due tabelle.
+'''
+
 conn = sqlite3.connect(DB_FILE)
 conn.execute("PRAGMA foreign_keys = ON")  # in SQLite le chiavi esterne vanno attivate
 conn.executescript("""
@@ -38,6 +37,10 @@ CREATE TABLE IF NOT EXISTS xp (
     PRIMARY KEY (id_server, id_utente)
 );
 CREATE INDEX IF NOT EXISTS idx_xp_classifica ON xp (id_server, xp DESC);
+CREATE VIEW IF NOT EXISTS classifica AS
+SELECT id_server, id_utente, xp,
+       RANK() OVER (PARTITION BY id_server ORDER BY xp DESC) AS posizione
+FROM xp;
 """)
 
 dirty = False  # diventa True quando ci sono dati da salvare
@@ -73,10 +76,17 @@ def set_xp(guild_id: int, user_id: int, xp: int):
     mark_dirty()
 
 
-def top_xp(guild_id: int, limite: int = 10) -> list[tuple[int, int]]:
-    """I primi utenti del server per XP: [(id_utente, xp), ...]."""
-    return conn.execute("SELECT id_utente, xp FROM xp WHERE id_server = ? "
-                        "ORDER BY xp DESC LIMIT ?", (guild_id, limite)).fetchall()
+def top_xp(guild_id: int, limite: int = 10) -> list[tuple[int, int, int]]:
+    """I primi utenti del server per XP: [(posizione, id_utente, xp), ...]."""
+    return conn.execute("SELECT posizione, id_utente, xp FROM classifica WHERE id_server = ? "
+                        "ORDER BY posizione, id_utente LIMIT ?", (guild_id, limite)).fetchall()
+
+
+def get_posizione(guild_id: int, user_id: int) -> int | None:
+    """Posizione in classifica dell'utente nel server (None se non ha XP)."""
+    riga = conn.execute("SELECT posizione FROM classifica WHERE id_server = ? AND id_utente = ?",
+                        (guild_id, user_id)).fetchone()
+    return riga[0] if riga else None
 
 
 def get_last_save() -> float | None:

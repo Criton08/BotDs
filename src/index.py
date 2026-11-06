@@ -22,6 +22,7 @@ from database import (
     all_steam_ids,
     get_last_save,
     get_levelup_channel,
+    get_posizione,
     get_steam_id,
     get_xp,
     mark_dirty,
@@ -210,6 +211,8 @@ async def rank(interaction: discord.Interaction, utente: discord.Member | None =
 
     embed = discord.Embed(color=0x5865F2)
     embed.set_author(name=target.display_name, icon_url=target.display_avatar.url)
+    posizione = get_posizione(interaction.guild.id, target.id)
+    embed.add_field(name="Posizione", value=f"#{posizione}" if posizione else "—")
     embed.add_field(name="Livello", value=str(level))
     embed.add_field(name="XP", value=f"{current} / {needed}")
     embed.add_field(name="XP totali", value=str(xp))
@@ -247,14 +250,17 @@ async def setlevelchannel_error(
         raise error
 
 
-@client.tree.command(name="leaderboard", description="Classifica top 10 del server")
+@client.tree.command(name="leaderboard", description="Classifica del server (default top 10)")
+@app_commands.describe(quanti="Quanti utenti mostrare (1-25, default 10)")
 @app_commands.guild_only()
-async def leaderboard(interaction: discord.Interaction):
-    # Ordina gli utenti del server per XP, dal più alto, e prende i primi 10
-    top = top_xp(interaction.guild.id, 10)
+async def leaderboard(
+    interaction: discord.Interaction, quanti: app_commands.Range[int, 1, 25] = 10
+):
+    # Dalla view 'classifica': primi N utenti del server per XP
+    top = top_xp(interaction.guild.id, quanti)
 
     righe = []
-    for posizione, (user_id, xp) in enumerate(top, start=1):
+    for posizione, user_id, xp in top:
         level, _, _ = level_info(xp)
         righe.append(f"**{posizione}.** <@{user_id}> — livello {level} ({xp} XP)")
 
