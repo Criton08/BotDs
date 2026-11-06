@@ -3,6 +3,7 @@ import os
 import random
 import re
 import time
+from datetime import datetime, timezone
 
 import discord
 from discord import app_commands
@@ -16,13 +17,14 @@ from bot import (
     LevelBot,
     level_info,
 )
+import database
 from database import (
     all_steam_ids,
-    get_last_seen,
+    get_last_save,
     get_levelup_channel,
     get_steam_id,
     get_xp,
-    set_last_seen,
+    mark_dirty,
     set_levelup_channel,
     set_steam_id,
     set_xp,
@@ -52,31 +54,25 @@ async def on_ready():
     if not aggiorna_steam.is_running():
         aggiorna_steam.start()
 
-    # Recupera i messaggi arrivati mentre il bot era spento
-    for guild in client.guilds:
-        for channel in guild.text_channels:
-            last = get_last_seen(channel.id)
-            if last is None:
-                # Canale mai visto: parte da adesso, non legge lo storico
-                if channel.last_message_id:
-                    set_last_seen(guild.id, channel.id, channel.last_message_id)
-                continue
-            try:
-                async for msg in channel.history(
-                    limit=None, after=discord.Object(id=last), oldest_first=True
-                ):
-                    set_last_seen(guild.id, channel.id, msg.id)
-                    await assegna_xp(msg, msg.created_at.timestamp(), annuncia=False)
-            except discord.Forbidden:
-                pass  # manca "Leggi cronologia messaggi" in questo canale
+    # Recupera i messaggi arrivati dopo l'ultimo salvataggio
+    ultimo = get_last_save()
+    if ultimo is not None:
+        da = datetime.fromtimestamp(ultimo, tz=timezone.utc)
+        for guild in client.guilds:
+            for channel in guild.text_channels:
+                try:
+                    async for msg in channel.history(limit=None, after=da, oldest_first=True):
+                        await assegna_xp(msg, msg.created_at.timestamp(), annuncia=False)
+                except discord.Forbidden:
+                    pass  # manca "Leggi cronologia messaggi" in questo canale
+    database.recupero_in_corso = False  # da ora save() può far avanzare l'orario
+    mark_dirty()  # forza un commit con il nuovo orario
     print("Recupero messaggi completato")
 
 
 @client.event
 async def on_message(message: discord.Message):
     """Eseguito a ogni messaggio in diretta."""
-    if message.guild is not None:
-        set_last_seen(message.guild.id, message.channel.id, message.id)
     await assegna_xp(message, time.time())
 
 

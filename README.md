@@ -39,7 +39,7 @@ SQLite, file `levels.db` creato all'avvio nella cartella da cui lanci il bot (la
 |---|---|
 | `utenti` | `id_utente`, `steam`: dati globali dell'utente |
 | `server` | `id_server`, `canale_levelup` |
-| `canali` | `id_canale`, `id_server`, `ultimo_messaggio` (per recuperare i messaggi persi) |
+| `meta` | `chiave`, `valore` (`ultimo_salvataggio`: orario per recuperare i messaggi persi) |
 | `xp` | `id_server`, `id_utente`, `xp`: XP dell'utente in quel server |
 
 `levels.db` è nel `.gitignore`: contiene dati degli utenti, non va committato.

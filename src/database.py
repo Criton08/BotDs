@@ -2,6 +2,7 @@
 Non importa index.py né bot.py."""
 import atexit
 import sqlite3
+import time
 
 from discord.ext import tasks
 
@@ -11,7 +12,7 @@ DB_FILE = "levels.db"  # database SQLite con gli XP
 # DATABASE (SQLite, schema normalizzato con chiavi esterne)
 #   utenti(id_utente PK, steam)                  un utente, una riga (dati globali)
 #   server(id_server PK, canale_levelup)         un server, una riga
-#   canali(id_canale PK, id_server FK, ultimo_messaggio)
+#   meta(chiave PK, valore)                      'ultimo_salvataggio' = orario (epoch) dell'ultimo commit
 #   xp(id_server FK, id_utente FK, xp)           PK (id_server, id_utente)
 # Le scritture restano in una transazione; save_loop fa il commit ogni 10 s.
 # =====================================================
@@ -26,10 +27,9 @@ CREATE TABLE IF NOT EXISTS server (
     id_server      INTEGER PRIMARY KEY,
     canale_levelup INTEGER
 );
-CREATE TABLE IF NOT EXISTS canali (
-    id_canale        INTEGER PRIMARY KEY,
-    id_server        INTEGER NOT NULL REFERENCES server(id_server) ON DELETE CASCADE,
-    ultimo_messaggio INTEGER
+CREATE TABLE IF NOT EXISTS meta (
+    chiave TEXT PRIMARY KEY,
+    valore REAL
 );
 CREATE TABLE IF NOT EXISTS xp (
     id_server INTEGER NOT NULL REFERENCES server(id_server) ON DELETE CASCADE,
@@ -41,6 +41,7 @@ CREATE INDEX IF NOT EXISTS idx_xp_classifica ON xp (id_server, xp DESC);
 """)
 
 dirty = False  # diventa True quando ci sono dati da salvare
+recupero_in_corso = True  # True finché on_ready non ha finito di recuperare i messaggi
 
 
 def mark_dirty():
@@ -78,20 +79,19 @@ def top_xp(guild_id: int, limite: int = 10) -> list[tuple[int, int]]:
                         "ORDER BY xp DESC LIMIT ?", (guild_id, limite)).fetchall()
 
 
-def get_last_seen(channel_id: int) -> int | None:
-    """ID dell'ultimo messaggio letto in un canale (None se mai visto)."""
-    riga = conn.execute("SELECT ultimo_messaggio FROM canali WHERE id_canale = ?",
-                        (channel_id,)).fetchone()
+def get_last_save() -> float | None:
+    """Orario (epoch) dell'ultimo salvataggio (None se mai salvato)."""
+    riga = conn.execute("SELECT valore FROM meta WHERE chiave = 'ultimo_salvataggio'").fetchone()
     return riga[0] if riga else None
 
 
-def set_last_seen(guild_id: int, channel_id: int, message_id: int):
-    """Ricorda l'ultimo messaggio letto in un canale del server."""
-    _assicura(guild_id)
-    conn.execute("INSERT INTO canali (id_canale, id_server, ultimo_messaggio) VALUES (?, ?, ?) "
-                 "ON CONFLICT (id_canale) DO UPDATE SET ultimo_messaggio = excluded.ultimo_messaggio",
-                 (channel_id, guild_id, message_id))
-    mark_dirty()
+def save():
+    """Scrive l'orario del salvataggio e fa il commit, nella stessa transazione degli XP.
+    Durante il recupero messaggi l'orario non avanza: un crash non fa perdere messaggi."""
+    if not recupero_in_corso:
+        conn.execute("INSERT INTO meta (chiave, valore) VALUES ('ultimo_salvataggio', ?) "
+                     "ON CONFLICT (chiave) DO UPDATE SET valore = excluded.valore", (time.time(),))
+    conn.commit()
 
 
 def get_levelup_channel(guild_id: int) -> int | None:
@@ -133,8 +133,8 @@ async def save_loop():
     """Ogni 10 secondi fa il commit, ma solo se qualcosa è cambiato."""
     global dirty
     if dirty:
-        conn.commit()
+        save()
         dirty = False
 
 
-atexit.register(conn.commit)  # alla chiusura salva quello che resta
+atexit.register(save)  # alla chiusura salva quello che resta
