@@ -11,8 +11,21 @@ Bot Discord con sistema di livelli e XP. Ogni messaggio dà XP, salendo di livel
 | `/helprank` | Elenca i ruoli del server con livello e XP totali necessari per ottenerli. |
 | `/setlevelchannel [canale]` | Solo admin. Imposta il canale dei messaggi di level up. Senza argomento torna al canale dove scrive l'utente. |
 | `/steam <profilo>` | Collega il tuo account Steam (incolla il link al profilo) e aggiunge il livello Steam al nickname (`Nome [Steam 42]`). |
+| `/setminiruolo [ruolo]` | Solo admin. Imposta il ruolo che può creare un mini server. Senza argomento disattiva la funzione. |
+| `/minicrea <nome>` | Crea il tuo mini server (uno a testa). Serve il ruolo scelto dall'admin. |
+| `/miniinvita <utente>` | Fa vedere il tuo mini server a un altro utente. |
+| `/minirimuovi <utente>` | Toglie a un utente l'accesso al tuo mini server. |
+| `/minielimina` | Elimina il tuo mini server. |
 
 I comandi funzionano solo dentro un server, non in privato.
+
+## Mini server
+
+- `/minicrea nome` crea una categoria `nome` con la chat `nome_chat` e il vocale `nome_vocale`.
+- Li vedono solo il proprietario, gli invitati (`/miniinvita`) e gli admin.
+- La chat viene azzerata ogni 24 ore (`MINI_RESET_ORE` in `src/bot.py`): il bot clona il canale ed elimina il vecchio.
+- Senza messaggi in chat per 30 giorni (`MINI_INATTIVITA_GIORNI`) il mini server viene eliminato.
+- Al bot servono i permessi **Gestisci canali** e **Gestisci messaggi**.
 
 ## Livello Steam nel nickname
 
@@ -42,6 +55,8 @@ SQLite, file `levels.db` creato all'avvio nella cartella da cui lanci il bot (la
 | `server` | `id_server`, `canale_levelup` |
 | `meta` | `chiave`, `valore` (`ultimo_salvataggio`: orario per recuperare i messaggi persi) |
 | `xp` | `id_server`, `id_utente`, `xp`: XP dell'utente in quel server |
+| `config_mini` | `id_server`, `id_ruolo`: ruolo che può creare un mini server |
+| `mini_server` | `id_server`, `id_utente`, `nome`, id di categoria/chat/vocale, `ultimo_reset`, `ultimo_messaggio` |
 | `classifica` (view) | `id_server`, `id_utente`, `xp`, `posizione`: `RANK()` per server, usata da `/rank` e `/leaderboard` |
 
 `levels.db` è nel `.gitignore`: contiene dati degli utenti, non va committato.

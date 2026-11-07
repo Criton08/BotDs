@@ -13,7 +13,9 @@ Tabella utente abbiamo le info di ds e steam,
 Tabella server abbiamo le info del serverDs e quale è il canale levelup,
 Tabella meta abbiamo l'ultimo salvataggio svolto,
 Tabella xp abbiamo gli xp di ogni utente in ogni server, con chiavi esterne verso le altre due tabelle,
-Tabella ruoli abbiamo i ruoli di livello di ogni server (1 server -> n ruoli), con il livello da raggiungere.
+Tabella ruoli abbiamo i ruoli di livello di ogni server (1 server -> n ruoli), con il livello da raggiungere,
+Tabella config_mini abbiamo il ruolo che può creare un mini server (1 per server, scelto dall'admin),
+Tabella mini_server abbiamo i mini server (categoria + chat + vocale), al massimo uno per utente e per server.
 '''
 
 conn = sqlite3.connect(DB_FILE)
@@ -43,6 +45,22 @@ CREATE TABLE IF NOT EXISTS ruoli (
     livello   INTEGER NOT NULL CHECK (livello >= 0),
     UNIQUE (id_server, livello)
 );
+CREATE TABLE IF NOT EXISTS config_mini (
+    id_server INTEGER PRIMARY KEY REFERENCES server(id_server) ON DELETE CASCADE,
+    id_ruolo  INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mini_server (
+    id_server        INTEGER NOT NULL REFERENCES server(id_server) ON DELETE CASCADE,
+    id_utente        INTEGER NOT NULL REFERENCES utenti(id_utente) ON DELETE CASCADE,
+    nome             TEXT NOT NULL,
+    id_categoria     INTEGER NOT NULL,
+    id_testo         INTEGER NOT NULL,
+    id_vocale        INTEGER NOT NULL,
+    ultimo_reset     REAL NOT NULL,  -- ultima volta che la chat è stata azzerata
+    ultimo_messaggio REAL NOT NULL,  -- ultimo messaggio scritto nella chat
+    PRIMARY KEY (id_server, id_utente)
+);
+CREATE INDEX IF NOT EXISTS idx_mini_testo ON mini_server (id_testo);
 CREATE INDEX IF NOT EXISTS idx_xp_classifica ON xp (id_server, xp DESC);
 CREATE VIEW IF NOT EXISTS classifica AS
 SELECT id_server, id_utente, xp,
@@ -156,6 +174,83 @@ def remove_ruolo(guild_id: int, role_id: int) -> bool:
     cur = conn.execute("DELETE FROM ruoli WHERE id_server = ? AND id_ruolo = ?", (guild_id, role_id))
     mark_dirty()
     return cur.rowcount > 0
+
+
+_COLONNE_MINI = "id_server, id_utente, nome, id_categoria, id_testo, id_vocale"
+
+
+def get_ruolo_mini(guild_id: int) -> int | None:
+    """Ruolo che può creare un mini server (None = non configurato)."""
+    riga = conn.execute("SELECT id_ruolo FROM config_mini WHERE id_server = ?", (guild_id,)).fetchone()
+    return riga[0] if riga else None
+
+
+def set_ruolo_mini(guild_id: int, role_id: int | None):
+    """Imposta (o con None rimuove) il ruolo che può creare un mini server."""
+    if role_id is None:
+        conn.execute("DELETE FROM config_mini WHERE id_server = ?", (guild_id,))
+    else:
+        _assicura(guild_id)
+        conn.execute("INSERT INTO config_mini (id_server, id_ruolo) VALUES (?, ?) "
+                     "ON CONFLICT (id_server) DO UPDATE SET id_ruolo = excluded.id_ruolo",
+                     (guild_id, role_id))
+    mark_dirty()
+
+
+def get_mini(guild_id: int, user_id: int) -> tuple | None:
+    """Mini server dell'utente: (id_server, id_utente, nome, id_categoria, id_testo, id_vocale)."""
+    return conn.execute(f"SELECT {_COLONNE_MINI} FROM mini_server WHERE id_server = ? AND id_utente = ?",
+                        (guild_id, user_id)).fetchone()
+
+
+def add_mini(guild_id: int, user_id: int, nome: str, id_categoria: int, id_testo: int, id_vocale: int):
+    """Registra un mini server appena creato."""
+    _assicura(guild_id, user_id)
+    adesso = time.time()
+    conn.execute("INSERT INTO mini_server (id_server, id_utente, nome, id_categoria, id_testo, id_vocale, "
+                 "ultimo_reset, ultimo_messaggio) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                 (guild_id, user_id, nome, id_categoria, id_testo, id_vocale, adesso, adesso))
+    mark_dirty()
+
+
+def remove_mini(guild_id: int, user_id: int):
+    """Toglie il mini server dall'elenco (i canali si eliminano su Discord)."""
+    conn.execute("DELETE FROM mini_server WHERE id_server = ? AND id_utente = ?", (guild_id, user_id))
+    mark_dirty()
+
+
+def remove_mini_categoria(id_categoria: int):
+    """Toglie il mini server la cui categoria è stata eliminata su Discord."""
+    cur = conn.execute("DELETE FROM mini_server WHERE id_categoria = ?", (id_categoria,))
+    if cur.rowcount:
+        mark_dirty()
+
+
+def set_mini_testo(guild_id: int, user_id: int, id_testo: int):
+    """Dopo il reset: nuovo canale chat e orario del reset."""
+    conn.execute("UPDATE mini_server SET id_testo = ?, ultimo_reset = ? WHERE id_server = ? AND id_utente = ?",
+                 (id_testo, time.time(), guild_id, user_id))
+    mark_dirty()
+
+
+def segna_messaggio_mini(id_testo: int):
+    """Se il canale è la chat di un mini server, aggiorna l'ultimo messaggio."""
+    cur = conn.execute("UPDATE mini_server SET ultimo_messaggio = ? WHERE id_testo = ?",
+                       (time.time(), id_testo))
+    if cur.rowcount:
+        mark_dirty()
+
+
+def mini_da_resettare(prima_di: float) -> list[tuple]:
+    """Mini server con l'ultimo reset precedente a 'prima_di' (epoch)."""
+    return conn.execute(f"SELECT {_COLONNE_MINI} FROM mini_server WHERE ultimo_reset < ?",
+                        (prima_di,)).fetchall()
+
+
+def mini_inattivi(prima_di: float) -> list[tuple]:
+    """Mini server senza messaggi dopo 'prima_di' (epoch)."""
+    return conn.execute(f"SELECT {_COLONNE_MINI} FROM mini_server WHERE ultimo_messaggio < ?",
+                        (prima_di,)).fetchall()
 
 
 def set_steam_id(user_id: int, steam_id: str):

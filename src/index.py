@@ -11,6 +11,8 @@ from discord.ext import tasks
 
 from bot import (
     COOLDOWN_SECONDS,
+    MINI_INATTIVITA_GIORNI,
+    MINI_RESET_ORE,
     XP_MAX,
     XP_BONUS_PER_LEVEL,
     XP_MIN,
@@ -20,16 +22,26 @@ from bot import (
 )
 import database
 from database import (
+    add_mini,
     all_steam_ids,
     get_last_save,
     get_levelup_channel,
+    get_mini,
     get_posizione,
     get_ruoli,
+    get_ruolo_mini,
     get_xp,
     mark_dirty,
+    mini_da_resettare,
+    mini_inattivi,
+    remove_mini,
+    remove_mini_categoria,
     remove_ruolo,
+    segna_messaggio_mini,
     set_levelup_channel,
+    set_mini_testo,
     set_ruolo,
+    set_ruolo_mini,
     set_steam_id,
     set_xp,
     top_xp,
@@ -56,6 +68,8 @@ async def on_ready():
 
     if not aggiorna_steam.is_running():
         aggiorna_steam.start()
+    if not gestisci_mini.is_running():
+        gestisci_mini.start()
 
     # Recupera i messaggi arrivati dopo l'ultimo salvataggio
     ultimo = get_last_save()
@@ -76,6 +90,8 @@ async def on_ready():
 @client.event
 async def on_message(message: discord.Message):
     """Eseguito a ogni messaggio in diretta."""
+    if message.guild and not message.author.bot:
+        segna_messaggio_mini(message.channel.id)  # attività per l'eliminazione dopo 30 giorni
     await assegna_xp(message, time.time())
 
 
@@ -83,6 +99,12 @@ async def on_message(message: discord.Message):
 async def on_guild_role_delete(role: discord.Role):
     """Un ruolo eliminato su Discord sparisce anche dall'elenco dei ruoli di livello."""
     remove_ruolo(role.guild.id, role.id)
+
+
+@client.event
+async def on_guild_channel_delete(channel: discord.abc.GuildChannel):
+    """Una categoria di mini server eliminata a mano su Discord sparisce anche dal database."""
+    remove_mini_categoria(channel.id)
 
 
 async def assegna_xp(message: discord.Message, now: float, annuncia: bool = True):
@@ -171,6 +193,74 @@ async def aggiorna_steam():
                 continue  # utente non in questo server
             await aggiorna_nick(member, livello)
             await asyncio.sleep(1)  # evita il rate limit
+
+
+# =====================================================
+# MINI SERVER (categoria + chat + vocale privati)
+# =====================================================
+def nome_mini(nome: str) -> str:
+    """Nome adatto ai canali Discord: minuscolo, solo lettere, numeri e trattini."""
+    return re.sub(r"[^a-z0-9]+", "-", nome.lower()).strip("-")[:40]
+
+
+def permessi_mini(guild: discord.Guild, proprietario: discord.Member) -> dict:
+    """Vedono solo il proprietario, il bot e gli admin (che hanno già tutto)."""
+    uso = dict(view_channel=True, read_message_history=True, send_messages=True, connect=True, speak=True)
+    return {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        proprietario: discord.PermissionOverwrite(**uso),
+        guild.me: discord.PermissionOverwrite(manage_channels=True, manage_messages=True, **uso),
+    }
+
+
+async def elimina_mini(guild: discord.Guild, riga: tuple):
+    """Toglie il mini server dal database ed elimina chat, vocale e categoria."""
+    _, id_utente, _, id_categoria, id_testo, id_vocale = riga
+    remove_mini(guild.id, id_utente)
+    for id_canale in (id_testo, id_vocale, id_categoria):
+        canale = guild.get_channel(id_canale)
+        if canale:
+            try:
+                await canale.delete(reason="Mini server eliminato")
+            except (discord.Forbidden, discord.HTTPException):
+                print(f"Impossibile eliminare il canale {id_canale}")
+
+
+async def resetta_chat(guild: discord.Guild, riga: tuple):
+    """Azzera la chat clonando il canale (stessi permessi e inviti) ed eliminando il vecchio."""
+    _, id_utente, nome, id_categoria, id_testo, _ = riga
+    vecchio = guild.get_channel(id_testo)
+    try:
+        if vecchio:
+            nuovo = await vecchio.clone(reason="Reset giornaliero della chat")
+            await vecchio.delete(reason="Reset giornaliero della chat")
+        else:  # chat eliminata a mano: la ricrea
+            categoria = guild.get_channel(id_categoria)
+            if categoria is None:
+                remove_mini(guild.id, id_utente)
+                return
+            nuovo = await guild.create_text_channel(f"{nome}_chat", category=categoria,
+                                                    overwrites=categoria.overwrites)
+    except (discord.Forbidden, discord.HTTPException):
+        print(f"Permessi mancanti: reset della chat di {nome} non riuscito")
+        return
+    set_mini_testo(guild.id, id_utente, nuovo.id)
+
+
+@tasks.loop(minutes=10)
+async def gestisci_mini():
+    """Elimina i mini server inattivi e azzera le chat più vecchie di MINI_RESET_ORE."""
+    adesso = time.time()
+    for riga in mini_inattivi(adesso - MINI_INATTIVITA_GIORNI * 86400):
+        guild = client.get_guild(riga[0])
+        if guild:
+            await elimina_mini(guild, riga)
+            await asyncio.sleep(1)  # evita il rate limit
+    for riga in mini_da_resettare(adesso - MINI_RESET_ORE * 3600):
+        guild = client.get_guild(riga[0])
+        if guild:
+            await resetta_chat(guild, riga)
+            await asyncio.sleep(1)
 
 
 # =====================================================
@@ -327,6 +417,149 @@ async def ruoli_error(
         )
     else:
         raise error
+
+
+@client.tree.command(name="setminiruolo", description="Imposta il ruolo che può creare un mini server (solo admin)")
+@app_commands.describe(ruolo="Ruolo autorizzato; vuoto = disattiva i mini server")
+@app_commands.guild_only()
+@app_commands.default_permissions(administrator=True)
+@app_commands.checks.has_permissions(administrator=True)
+async def setminiruolo(interaction: discord.Interaction, ruolo: discord.Role | None = None):
+    set_ruolo_mini(interaction.guild.id, ruolo.id if ruolo else None)
+    if ruolo:
+        msg = f"Chi ha {ruolo.mention} può creare un mini server con /minicrea."
+    else:
+        msg = "Mini server disattivati: nessuno può crearne di nuovi."
+    await interaction.response.send_message(msg, ephemeral=True)
+
+
+@setminiruolo.error
+async def setminiruolo_error(
+    interaction: discord.Interaction, error: app_commands.AppCommandError
+):
+    if isinstance(error, app_commands.MissingPermissions):
+        await interaction.response.send_message(
+            "Solo gli amministratori possono usarlo.", ephemeral=True
+        )
+    else:
+        raise error
+
+
+@client.tree.command(name="minicrea", description="Crea il tuo mini server (chat e vocale privati)")
+@app_commands.describe(nome="Nome del mini server")
+@app_commands.guild_only()
+async def minicrea(interaction: discord.Interaction, nome: app_commands.Range[str, 1, 40]):
+    guild = interaction.guild
+    ruolo_id = get_ruolo_mini(guild.id)
+    if ruolo_id is None:
+        await interaction.response.send_message(
+            "I mini server non sono attivi: un admin deve usare /setminiruolo.", ephemeral=True
+        )
+        return
+    autorizzato = interaction.user.guild_permissions.administrator or any(
+        r.id == ruolo_id for r in interaction.user.roles
+    )
+    if not autorizzato:
+        await interaction.response.send_message(
+            f"Per creare un mini server ti serve il ruolo <@&{ruolo_id}>.", ephemeral=True
+        )
+        return
+    if get_mini(guild.id, interaction.user.id):
+        await interaction.response.send_message(
+            "Hai già un mini server: eliminalo con /minielimina per crearne un altro.", ephemeral=True
+        )
+        return
+    pulito = nome_mini(nome)
+    if not pulito:
+        await interaction.response.send_message(
+            "Nome non valido: usa almeno una lettera o un numero.", ephemeral=True
+        )
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    permessi = permessi_mini(guild, interaction.user)
+    creati = []
+    try:
+        categoria = await guild.create_category(pulito, overwrites=permessi)
+        creati.append(categoria)
+        testo = await guild.create_text_channel(f"{pulito}_chat", category=categoria, overwrites=permessi)
+        creati.append(testo)
+        vocale = await guild.create_voice_channel(f"{pulito}_vocale", category=categoria, overwrites=permessi)
+    except (discord.Forbidden, discord.HTTPException):
+        for canale in creati:
+            await canale.delete()
+        await interaction.followup.send(
+            "Non riesco a creare i canali: al bot serve il permesso 'Gestisci canali'.", ephemeral=True
+        )
+        return
+    add_mini(guild.id, interaction.user.id, pulito, categoria.id, testo.id, vocale.id)
+    await interaction.followup.send(
+        f"Mini server creato: {testo.mention} e {vocale.mention}. "
+        f"La chat si azzera ogni {MINI_RESET_ORE} ore; senza messaggi per "
+        f"{MINI_INATTIVITA_GIORNI} giorni viene eliminato. Invita gli amici con /miniinvita.",
+        ephemeral=True,
+    )
+
+
+@client.tree.command(name="miniinvita", description="Invita un utente nel tuo mini server")
+@app_commands.describe(utente="L'utente che potrà vedere chat e vocale")
+@app_commands.guild_only()
+async def miniinvita(interaction: discord.Interaction, utente: discord.Member):
+    riga = get_mini(interaction.guild.id, interaction.user.id)
+    if riga is None:
+        await interaction.response.send_message("Non hai un mini server.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+    permesso = discord.PermissionOverwrite(
+        view_channel=True, read_message_history=True, send_messages=True, connect=True, speak=True
+    )
+    try:
+        # Le modifiche alla categoria non passano ai canali: si impostano su tutti e tre
+        for id_canale in (riga[3], riga[4], riga[5]):
+            canale = interaction.guild.get_channel(id_canale)
+            if canale:
+                await canale.set_permissions(utente, overwrite=permesso)
+    except (discord.Forbidden, discord.HTTPException):
+        await interaction.followup.send("Non riesco a modificare i permessi dei canali.", ephemeral=True)
+        return
+    await interaction.followup.send(f"{utente.mention} ora vede il tuo mini server.", ephemeral=True)
+
+
+@client.tree.command(name="minirimuovi", description="Toglie l'accesso al tuo mini server a un utente")
+@app_commands.describe(utente="L'utente a cui togliere l'accesso")
+@app_commands.guild_only()
+async def minirimuovi(interaction: discord.Interaction, utente: discord.Member):
+    riga = get_mini(interaction.guild.id, interaction.user.id)
+    if riga is None:
+        await interaction.response.send_message("Non hai un mini server.", ephemeral=True)
+        return
+    if utente.id == interaction.user.id:
+        await interaction.response.send_message(
+            "Non puoi rimuovere te stesso: usa /minielimina.", ephemeral=True
+        )
+        return
+    await interaction.response.defer(ephemeral=True)
+    try:
+        for id_canale in (riga[3], riga[4], riga[5]):
+            canale = interaction.guild.get_channel(id_canale)
+            if canale:
+                await canale.set_permissions(utente, overwrite=None)  # None toglie il permesso dedicato
+    except (discord.Forbidden, discord.HTTPException):
+        await interaction.followup.send("Non riesco a modificare i permessi dei canali.", ephemeral=True)
+        return
+    await interaction.followup.send(f"{utente.mention} non vede più il tuo mini server.", ephemeral=True)
+
+
+@client.tree.command(name="minielimina", description="Elimina il tuo mini server")
+@app_commands.guild_only()
+async def minielimina(interaction: discord.Interaction):
+    riga = get_mini(interaction.guild.id, interaction.user.id)
+    if riga is None:
+        await interaction.response.send_message("Non hai un mini server.", ephemeral=True)
+        return
+    await interaction.response.defer(ephemeral=True)
+    await elimina_mini(interaction.guild, riga)
+    await interaction.followup.send("Mini server eliminato.", ephemeral=True)
 
 
 @client.tree.command(name="leaderboard", description="Classifica del server (default top 10)")
