@@ -2,6 +2,7 @@ import os
 import re
 
 import aiohttp
+import discord
 
 STEAM_API_KEY = os.getenv("STEAM_API_KEY")  # la chiave si legge dalla variabile d'ambiente
 URL_LIVELLO = "https://api.steampowered.com/IPlayerService/GetSteamLevel/v1/"
@@ -50,3 +51,22 @@ async def steam_level(steamid: str) -> int | None:
     except aiohttp.ClientError:
         return None
     return data.get("response", {}).get("player_level")
+
+
+SUFFISSO_RE = re.compile(r"\s*\[Steam \d+\]$")  # riconosce un suffisso già messo da noi
+
+
+async def aggiorna_nick(member: discord.Member, livello: int) -> bool:
+    """Imposta 'Nome [Steam N]' (max 32 caratteri). False se mancano i permessi."""
+    suffisso = f" [Steam {livello}]"
+    base = SUFFISSO_RE.sub("", member.display_name)[: 32 - len(suffisso)]
+    nuovo = base + suffisso
+    if member.nick == nuovo:
+        return True
+    try:
+        await member.edit(nick=nuovo)
+        return True
+    except discord.Forbidden:
+        # Il proprietario del server non è modificabile; per gli altri serve
+        # 'Gestisci nickname' e il ruolo del bot sopra quello dell'utente
+        return False
